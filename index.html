@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DriveTrivia — Voice Quiz</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,500;9..40,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        midnight: '#0a0e17',
+        surface: '#111827',
+        panel: '#1a2236',
+        glow: '#f59e0b',
+        correct: '#10b981',
+        wrong: '#ef4444',
+        muted: '#6b7280',
+        soft: '#e5e7eb',
+      },
+      fontFamily: {
+        sans: ['"DM Sans"', 'system-ui'],
+        mono: ['"Space Mono"', 'monospace'],
+      },
+    }
+  }
+}
+</script>
+<style>
+  body { background: #0a0e17; color: #e5e7eb; font-family: 'DM Sans', sans-serif; }
+
+  .pulse-ring { animation: pulseRing 1.8s ease-out infinite; }
+  @keyframes pulseRing {
+    0% { transform: scale(0.85); opacity: 0.6; }
+    50% { transform: scale(1.2); opacity: 0.15; }
+    100% { transform: scale(0.85); opacity: 0.6; }
+  }
+
+  .wave-bar { animation: wave 0.8s ease-in-out infinite alternate; }
+  @keyframes wave { 0% { height: 6px; } 100% { height: 28px; } }
+
+  .fade-in { animation: fadeIn 0.35s ease-out forwards; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+  .progress-fill { transition: width 0.5s cubic-bezier(0.16,1,0.3,1); }
+
+  .opt-badge {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:30px; height:30px; border-radius:8px;
+    font-family:'Space Mono',monospace; font-size:13px; font-weight:700;
+    flex-shrink:0; transition: all 0.3s;
+  }
+  .opt-row { transition: all 0.3s; }
+
+  .grain::before {
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  }
+
+  .streak-fire { display:inline-block; animation: fireWiggle 0.6s ease-in-out infinite alternate; }
+  @keyframes fireWiggle { 0%{transform:rotate(-4deg) scale(1)} 100%{transform:rotate(4deg) scale(1.1)} }
+
+  .drop-zone { border: 2px dashed rgba(245,158,11,0.15); transition: all 0.3s; }
+  .drop-zone.dragover { border-color: rgba(245,158,11,0.5); background: rgba(245,158,11,0.04); }
+  .drop-zone.has-file { border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.04); }
+
+  .loader-dots span { animation: dotPulse 1.4s ease-in-out infinite; }
+  .loader-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .loader-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dotPulse {
+    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1.2); }
+  }
+</style>
+</head>
+<body class="grain min-h-screen flex flex-col">
+<div id="app" class="flex-1 flex flex-col max-w-2xl mx-auto w-full px-5 py-6">
+
+  <!-- HEADER -->
+  <header class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-glow/10 flex items-center justify-center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5"/></svg>
+      </div>
+      <span class="font-mono text-sm text-glow tracking-wider">DRIVETRIVIA</span>
+    </div>
+    <div id="headerInfo" class="text-xs text-muted font-mono tracking-wide"></div>
+  </header>
+
+  <!-- SCREEN: Start (Topic Mode) -->
+  <section id="screenStart" class="flex-1 flex flex-col justify-center items-center text-center">
+    <h1 class="text-4xl font-bold tracking-tight mb-3" style="line-height:1.15">
+      Trivia, but make it<br><span class="text-glow">hands-free.</span>
+    </h1>
+    <p class="text-muted text-base max-w-md mx-auto leading-relaxed mb-6">
+      Pick a mode, and AI generates the questions. You answer with your voice — A, B, C, or D.
+    </p>
+
+    <!-- Mode Tabs -->
+    <div class="flex gap-1 bg-panel/40 rounded-xl p-1 mb-7 w-full max-w-md">
+      <button onclick="switchMode('topic')" id="tabTopic"
+        class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border-glow/30 bg-glow/10 text-glow">Topic</button>
+      <button onclick="switchMode('study')" id="tabStudy"
+        class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft">Study Material</button>
+    </div>
+
+    <!-- API Key (shared) -->
+    <div class="w-full max-w-md mb-5">
+      <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">ANTHROPIC API KEY</label>
+      <div class="flex gap-2">
+        <input id="apiKeyInput" type="password" placeholder="sk-ant-..."
+          class="flex-1 bg-panel/60 border border-white/5 rounded-xl px-4 py-2.5 text-sm text-soft placeholder-muted/40 outline-none focus:border-glow/30 transition-colors font-mono">
+        <button id="toggleKeyBtn" onclick="toggleKeyVisibility()"
+          class="px-3 py-2 rounded-xl text-xs font-mono border border-white/5 bg-panel/40 text-muted hover:border-white/10 hover:text-soft transition-all">Show</button>
+      </div>
+    </div>
+
+    <!-- TOPIC MODE FIELDS -->
+    <div id="topicFields" class="w-full max-w-md">
+      <div class="mb-6">
+        <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">TOPIC</label>
+        <div class="flex gap-2">
+          <input id="topicInput" type="text" placeholder="e.g. World War II, organic chemistry, Python..."
+            class="flex-1 bg-panel/60 border border-white/5 rounded-xl px-4 py-3 text-base text-soft placeholder-muted/40 outline-none focus:border-glow/30 transition-colors"
+            onkeydown="if(event.key==='Enter') startGame()">
+          <button id="btnVoiceTopic" onclick="voiceTopic()"
+            class="w-12 flex items-center justify-center rounded-xl border border-white/5 bg-panel/40 text-muted hover:border-glow/20 hover:text-glow transition-all active:scale-95"
+            title="Speak your topic">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STUDY MODE FIELDS -->
+    <div id="studyFields" class="w-full max-w-md hidden">
+      <!-- PDF Upload -->
+      <div class="mb-5">
+        <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">UPLOAD STUDY MATERIAL</label>
+        <div id="dropZone" class="drop-zone rounded-xl px-6 py-8 flex flex-col items-center gap-3 cursor-pointer"
+          onclick="document.getElementById('pdfFileInput').click()">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-muted/40">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <polyline points="9 15 12 12 15 15"/>
+          </svg>
+          <p id="dropLabel" class="text-sm text-muted">Drop a PDF here or <span class="text-glow">click to browse</span></p>
+          <p class="text-xs text-muted/40 font-mono">PDF files only</p>
+        </div>
+        <input id="pdfFileInput" type="file" accept=".pdf" class="hidden" onchange="handlePDFSelect(event)">
+      </div>
+
+      <!-- File info -->
+      <div id="pdfFileInfo" class="hidden mb-5 flex items-center gap-3 bg-panel/60 rounded-xl px-4 py-3 border border-correct/10">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <span id="pdfFileName" class="text-sm text-soft flex-1 truncate"></span>
+        <span id="pdfPageCount" class="text-xs font-mono text-muted"></span>
+        <button onclick="clearPDF()" class="text-xs text-wrong/60 hover:text-wrong font-mono transition-colors">Remove</button>
+      </div>
+
+      <!-- Focus Area -->
+      <div class="mb-5">
+        <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">FOCUS ON <span class="text-muted/30">(OPTIONAL)</span></label>
+        <div class="flex gap-2">
+          <input id="focusInput" type="text" placeholder="e.g. chapter 5 formulas, key definitions, thermodynamics..."
+            class="flex-1 bg-panel/60 border border-white/5 rounded-xl px-4 py-3 text-base text-soft placeholder-muted/40 outline-none focus:border-glow/30 transition-colors">
+          <button onclick="voiceFocus()"
+            class="w-12 flex items-center justify-center rounded-xl border border-white/5 bg-panel/40 text-muted hover:border-glow/20 hover:text-glow transition-all active:scale-95"
+            title="Speak your focus">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model Picker -->
+    <div class="flex items-center gap-3 mb-5">
+      <span class="text-xs text-muted font-mono">MODEL:</span>
+      <button onclick="setModel('claude-haiku-4-5-20251001')" id="modelHaiku" class="model-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">Haiku</button>
+      <button onclick="setModel('claude-sonnet-4-6')" id="modelSonnet" class="model-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">Sonnet</button>
+      <button onclick="setModel('claude-opus-4-6')" id="modelOpus" class="model-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">Opus</button>
+    </div>
+
+    <!-- Length Picker (shared) -->
+    <div class="flex items-center gap-3 mb-8">
+      <span class="text-xs text-muted font-mono">QUESTIONS:</span>
+      <button onclick="setLength(5)" id="len5" class="len-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">5</button>
+      <button onclick="setLength(10)" id="len10" class="len-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">10</button>
+      <button onclick="setLength(15)" id="len15" class="len-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">15</button>
+    </div>
+
+    <!-- Start Button -->
+    <button id="btnStart" onclick="startGame()" class="
+      bg-glow hover:bg-amber-400 text-midnight font-bold text-base
+      px-10 py-3.5 rounded-xl transition-all duration-200
+      hover:shadow-[0_0_40px_rgba(245,158,11,0.2)] active:scale-95 tracking-wide
+    ">Generate & Start</button>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="hidden flex flex-col items-center gap-3">
+      <div class="loader-dots flex gap-2">
+        <span class="w-2.5 h-2.5 bg-glow rounded-full"></span>
+        <span class="w-2.5 h-2.5 bg-glow rounded-full"></span>
+        <span class="w-2.5 h-2.5 bg-glow rounded-full"></span>
+      </div>
+      <p id="loadingLabel" class="text-sm font-mono text-muted">Generating questions with Claude...</p>
+    </div>
+
+    <!-- Error Message -->
+    <p id="errorMsg" class="hidden text-wrong text-sm font-mono mt-4 max-w-md"></p>
+
+    <p class="text-muted/40 text-xs mt-5 font-mono">Works best in Chrome · Microphone required</p>
+  </section>
+
+  <!-- SCREEN: Quiz -->
+  <section id="screenQuiz" class="flex-1 flex-col justify-between hidden">
+    <!-- Progress -->
+    <div class="mb-5">
+      <div class="flex justify-between text-xs font-mono text-muted mb-1.5">
+        <span id="qCount">Q1 / 10</span>
+        <div class="flex items-center gap-3">
+          <span id="qStreak" class="text-glow hidden"></span>
+          <span id="qScore">0 / 0</span>
+        </div>
+      </div>
+      <div class="w-full h-1.5 bg-panel rounded-full overflow-hidden">
+        <div id="qBar" class="h-full bg-glow rounded-full progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Category pill -->
+    <div id="qCat" class="text-[11px] font-mono tracking-widest uppercase text-glow/50 mb-3"></div>
+
+    <!-- Question -->
+    <div id="qCard" class="bg-panel/60 rounded-2xl p-6 mb-5 border border-white/[0.04]" style="box-shadow:0 0 40px -10px rgba(245,158,11,0.06)">
+      <p id="qStem" class="text-lg font-medium leading-relaxed mb-5"></p>
+      <div id="qOpts" class="space-y-2.5"></div>
+    </div>
+
+    <!-- Voice status -->
+    <div id="voiceArea" class="flex flex-col items-center gap-2 py-3 mt-auto">
+      <div id="voiceInd" class="flex items-center gap-1 h-8"></div>
+      <p id="voiceLabel" class="text-sm font-mono text-muted h-5"></p>
+    </div>
+
+    <!-- Quiz controls -->
+    <div class="flex justify-center gap-3 pt-2 pb-1">
+      <button onclick="skipQuestion()" id="btnSkip"
+        class="px-5 py-2 rounded-xl text-xs font-mono border border-white/5 bg-panel/40 text-muted hover:border-glow/20 hover:text-glow transition-all active:scale-95">Skip</button>
+      <button onclick="quitQuiz()" id="btnQuit"
+        class="px-5 py-2 rounded-xl text-xs font-mono border border-white/5 bg-panel/40 text-muted hover:border-wrong/20 hover:text-wrong transition-all active:scale-95">Quit</button>
+    </div>
+  </section>
+
+  <!-- SCREEN: Summary -->
+  <section id="screenSummary" class="flex-1 flex-col justify-center items-center text-center hidden">
+    <div id="summaryEmoji" class="text-6xl mb-3"></div>
+    <div id="summaryPct" class="text-5xl font-bold text-glow mb-1"></div>
+    <p id="summarySubline" class="text-muted text-sm font-mono tracking-wide mb-8"></p>
+    <div id="summaryList" class="w-full max-w-md space-y-1.5 mb-8 text-left"></div>
+    <div class="flex gap-3">
+      <button onclick="resetToStart()" class="bg-panel hover:bg-panel/80 text-soft font-bold px-7 py-3 rounded-xl border border-white/5 transition-all active:scale-95">Menu</button>
+      <button onclick="playAgain()" class="bg-glow hover:bg-amber-400 text-midnight font-bold px-7 py-3 rounded-xl transition-all active:scale-95">Play Again</button>
+    </div>
+  </section>
+</div>
+
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
