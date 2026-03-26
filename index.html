@@ -106,6 +106,8 @@ tailwind.config = {
         class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border-glow/30 bg-glow/10 text-glow">Topic</button>
       <button onclick="switchMode('study')" id="tabStudy"
         class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft">Study Material</button>
+      <button onclick="switchMode('askme')" id="tabAskMe"
+        class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft">Ask Me</button>
     </div>
 
     <!-- API Key (shared) -->
@@ -190,6 +192,38 @@ tailwind.config = {
       </div>
     </div>
 
+    <!-- ASK ME MODE FIELDS -->
+    <div id="askmeFields" class="w-full max-w-md hidden">
+      <!-- PDF Upload (optional) -->
+      <div class="mb-5">
+        <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">UPLOAD REFERENCE NOTES <span class="text-muted/30">(OPTIONAL)</span></label>
+        <div id="askmeDropZone" class="drop-zone rounded-xl px-6 py-6 flex flex-col items-center gap-2.5 cursor-pointer"
+          onclick="document.getElementById('askmePdfInput').click()">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-muted/40">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <polyline points="9 15 12 12 15 15"/>
+          </svg>
+          <p id="askmeDropLabel" class="text-sm text-muted">Drop a PDF here or <span class="text-glow">click to browse</span></p>
+          <p class="text-xs text-muted/40 font-mono">So I can reference your notes</p>
+        </div>
+        <input id="askmePdfInput" type="file" accept=".pdf" class="hidden" onchange="handleAskmePDFSelect(event)">
+      </div>
+
+      <!-- Askme file info -->
+      <div id="askmePdfInfo" class="hidden mb-5 flex items-center gap-3 bg-panel/60 rounded-xl px-4 py-3 border border-correct/10">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <span id="askmePdfName" class="text-sm text-soft flex-1 truncate"></span>
+        <span id="askmePdfPages" class="text-xs font-mono text-muted"></span>
+        <button onclick="clearAskmePDF()" class="text-xs text-wrong/60 hover:text-wrong font-mono transition-colors">Remove</button>
+      </div>
+
+      <p class="text-xs text-muted/50 text-center mb-4">Ask about formulas, concepts, definitions — I'll explain and read it to you.</p>
+    </div>
+
     <!-- Model Picker -->
     <div class="flex items-center gap-3 mb-5">
       <span class="text-xs text-muted font-mono">MODEL:</span>
@@ -199,7 +233,7 @@ tailwind.config = {
     </div>
 
     <!-- Length Picker (shared) -->
-    <div class="flex items-center gap-3 mb-8">
+    <div id="lengthPicker" class="flex items-center gap-3 mb-8">
       <span class="text-xs text-muted font-mono">QUESTIONS:</span>
       <button onclick="setLength(5)" id="len5" class="len-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">5</button>
       <button onclick="setLength(10)" id="len10" class="len-btn px-3 py-1.5 rounded-lg text-xs font-mono border transition-all">10</button>
@@ -278,6 +312,62 @@ tailwind.config = {
     <div class="flex gap-3">
       <button onclick="resetToStart()" class="bg-panel hover:bg-panel/80 text-soft font-bold px-7 py-3 rounded-xl border border-white/5 transition-all active:scale-95">Menu</button>
       <button onclick="playAgain()" class="bg-glow hover:bg-amber-400 text-midnight font-bold px-7 py-3 rounded-xl transition-all active:scale-95">Play Again</button>
+    </div>
+  </section>
+</div>
+
+  <!-- SCREEN: Ask Me -->
+  <section id="screenAskMe" class="flex-1 flex-col hidden" style="max-height:calc(100vh - 80px)">
+    <!-- Header bar -->
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg bg-glow/10 flex items-center justify-center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <span class="font-mono text-xs text-glow/70 tracking-wider">ASK ME</span>
+        <span id="askmeRefBadge" class="hidden text-[10px] font-mono bg-correct/10 text-correct/70 px-2 py-0.5 rounded-full ml-2">PDF loaded</span>
+      </div>
+      <button onclick="exitAskMe()" class="text-xs font-mono text-muted hover:text-wrong transition-colors">Exit</button>
+    </div>
+
+    <!-- Chat area -->
+    <div id="askmeChat" class="flex-1 overflow-y-auto space-y-3 mb-4 pr-1" style="max-height:calc(100vh - 260px)">
+      <!-- Welcome message -->
+      <div class="flex justify-start">
+        <div class="bg-panel/60 border border-white/[0.04] rounded-2xl rounded-tl-md px-4 py-3 max-w-[85%]">
+          <p class="text-sm text-soft/80 leading-relaxed" id="askmeWelcome">Hi! Ask me anything — formulas, concepts, definitions. I'll explain and read it out to you.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Voice status -->
+    <div id="askmeVoiceArea" class="flex flex-col items-center gap-1 py-1">
+      <div id="askmeVoiceInd" class="flex items-center gap-1 h-6"></div>
+      <p id="askmeVoiceLabel" class="text-xs font-mono text-muted h-4"></p>
+    </div>
+
+    <!-- Input area -->
+    <div class="flex gap-2 items-end pt-2 pb-1">
+      <input id="askmeInput" type="text" placeholder="Ask a question..."
+        class="flex-1 bg-panel/60 border border-white/5 rounded-xl px-4 py-3 text-sm text-soft placeholder-muted/40 outline-none focus:border-glow/30 transition-colors"
+        onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendAskMe(); }">
+      <button onclick="voiceAskMe()" id="btnAskMeVoice"
+        class="w-11 h-11 flex items-center justify-center rounded-xl border border-white/5 bg-panel/40 text-muted hover:border-glow/20 hover:text-glow transition-all active:scale-95"
+        title="Ask with your voice">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+      <button onclick="sendAskMe()" id="btnAskMeSend"
+        class="w-11 h-11 flex items-center justify-center rounded-xl bg-glow hover:bg-amber-400 text-midnight transition-all active:scale-95"
+        title="Send">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
     </div>
   </section>
 </div>

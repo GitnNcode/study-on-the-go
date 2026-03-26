@@ -76,7 +76,8 @@ Rules:
 - Questions should be varied in difficulty (mix of easy, medium, hard).
 - Options should be plausible — avoid obvious throw-away choices.
 - Keep questions concise and clear.
-- The correct answer MUST always be the first element in "opts".`;
+- The correct answer MUST always be the first element in "opts".
+- Use proper math/science notation with Unicode symbols where appropriate (e.g. E = mc², H₂O, Δx, √x, ∫f(x)dx, θ, λ, π). This makes formulas display correctly on screen.`;
 
   async function generateQuestions(topic) {
     const userMsg = `Generate 15 multiple-choice trivia/study questions about: ${topic}`;
@@ -101,7 +102,8 @@ Rules:
 - Questions should be varied in difficulty (mix of easy, medium, hard).
 - Options should be plausible — use common misconceptions as distractors.
 - The correct answer MUST always be the first element in "opts".
-- All questions and answers must come directly from the provided material.`;
+- All questions and answers must come directly from the provided material.
+- Use proper math/science notation with Unicode symbols where appropriate (e.g. E = mc², H₂O, Δx, √x, ∫f(x)dx, θ, λ, π). This makes formulas display correctly on screen.`;
 
   async function generateQuestionsFromPDF(pdfText, focusArea) {
     // Truncate text if too long (stay well within context window)
@@ -186,12 +188,86 @@ Rules:
     return arr;
   }
 
+  // --- Multi-turn conversation helper ---
+  async function sendConversation(systemPrompt, messages) {
+    if (!config.apiKey) {
+      throw new Error('API key not set.');
+    }
+
+    const url = `${config.baseURL}/v1/messages`;
+
+    const body = {
+      model: config.model,
+      max_tokens: config.maxTokens,
+      system: systemPrompt,
+      messages,
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey,
+        'anthropic-version': config.apiVersion,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Claude API error (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+    const text = data.content
+      ?.filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('') || '';
+
+    if (!text) {
+      throw new Error('Empty response from Claude API.');
+    }
+
+    return text;
+  }
+
+  // --- Ask Me (conversational Q&A) ---
+  const ASKME_SYSTEM_PROMPT = `You are a friendly, knowledgeable study tutor. The student will ask you questions about formulas, concepts, definitions, or anything academic. Answer clearly and concisely — aim for 2-4 sentences since your response will be read aloud.
+
+If reference material from the student's notes is provided below, ground your answers in that material and cite specific parts when relevant. If the student asks about something not in the material, you may still answer from general knowledge but mention that it wasn't in their notes.
+
+Use proper math/science notation with Unicode symbols where appropriate (e.g. E = mc², H₂O, Δx, √x, ∫f(x)dx, θ, λ, π). The text will be displayed on screen, so formulas should look correct visually. A separate system handles converting them to spoken words for TTS.
+Never use markdown formatting, bullet points, or numbered lists — write in plain conversational sentences.`;
+
+  async function askQuestion(messages, pdfContext) {
+    let systemPrompt = ASKME_SYSTEM_PROMPT;
+    if (pdfContext) {
+      const maxChars = 60000;
+      let material = pdfContext;
+      if (material.length > maxChars) {
+        material = material.slice(0, maxChars) + '\n\n[... material truncated ...]';
+      }
+      systemPrompt += `\n\nHere is the student's reference material:\n---\n${material}\n---`;
+    }
+
+    // Keep conversation manageable — trim old messages if too long
+    let trimmedMessages = messages;
+    if (messages.length > 30) {
+      trimmedMessages = messages.slice(messages.length - 20);
+    }
+
+    return await sendConversation(systemPrompt, trimmedMessages);
+  }
+
   // --- Public API ---
   return {
     configure,
     getConfig,
     sendMessage,
+    sendConversation,
     generateQuestions,
     generateQuestionsFromPDF,
+    askQuestion,
   };
 })();
