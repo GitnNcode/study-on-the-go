@@ -5,12 +5,27 @@
 const ClaudeAPI = (() => {
   // --- Config ---
   const config = {
-    apiKey: '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',
+    apiKey: '',
     baseURL: 'https://api.anthropic.com',
     model: 'claude-haiku-4-5-20251001',
     apiVersion: '2023-06-01',
     maxTokens: 4096,
   };
+
+  async function loadConfig() {
+    try {
+      const res = await fetch('config.json');
+      if (!res.ok) throw new Error('config.json not found');
+      const data = await res.json();
+      if (data.ANTHROPIC_API_KEY) {
+        config.apiKey = data.ANTHROPIC_API_KEY;
+      }
+      return data;
+    } catch (e) {
+      console.error('Failed to load config.json:', e.message);
+      return null;
+    }
+  }
 
   function configure(overrides) {
     Object.assign(config, overrides);
@@ -262,6 +277,7 @@ Never use markdown formatting, bullet points, or numbered lists — write in pla
 
   // --- Public API ---
   return {
+    loadConfig,
     configure,
     getConfig,
     sendMessage,

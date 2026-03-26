@@ -30,11 +30,11 @@ let S = {
 // ════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   setModel('claude-haiku-4-5-20251001');
   setLength(10);
   checkBrowser();
-  loadApiKey();
+  await ClaudeAPI.loadConfig();
   if (window.speechSynthesis) {
     window.speechSynthesis.getVoices();
     window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
@@ -48,38 +48,6 @@ function checkBrowser() {
     btn.disabled = true;
     btn.textContent = 'Speech not supported — use Chrome';
     btn.classList.add('opacity-40', 'cursor-not-allowed');
-  }
-}
-
-// ════════════════════════════════════════
-// API KEY MANAGEMENT
-// ════════════════════════════════════════
-function loadApiKey() {
-  const saved = localStorage.getItem('claude_api_key') || '';
-  const input = document.getElementById('apiKeyInput');
-  if (saved) {
-    input.value = saved;
-    ClaudeAPI.configure({ apiKey: saved });
-  }
-}
-
-function saveApiKey() {
-  const key = document.getElementById('apiKeyInput').value.trim();
-  if (key) {
-    localStorage.setItem('claude_api_key', key);
-    ClaudeAPI.configure({ apiKey: key });
-  }
-}
-
-function toggleKeyVisibility() {
-  const input = document.getElementById('apiKeyInput');
-  const btn = document.getElementById('toggleKeyBtn');
-  if (input.type === 'password') {
-    input.type = 'text';
-    btn.textContent = 'Hide';
-  } else {
-    input.type = 'password';
-    btn.textContent = 'Show';
   }
 }
 
@@ -661,10 +629,8 @@ function shuffle(arr) {
 }
 
 async function startGame() {
-  saveApiKey();
-  const apiKey = document.getElementById('apiKeyInput').value.trim();
-  if (!apiKey) {
-    showError('Please enter your Anthropic API key.');
+  if (!ClaudeAPI.getConfig().apiKey) {
+    showError('API key not found. Make sure config.json exists with your ANTHROPIC_API_KEY.');
     return;
   }
 
@@ -1032,10 +998,6 @@ function clearAskmePDF() {
 // ASK ME — Chat flow
 // ════════════════════════════════════════
 async function startAskMe() {
-  saveApiKey();
-  const apiKey = document.getElementById('apiKeyInput').value.trim();
-  if (!apiKey) { showError('Please enter your Anthropic API key.'); return; }
-
   S.askmeMessages = [];
 
   show('screenAskMe');

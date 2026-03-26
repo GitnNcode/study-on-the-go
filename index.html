@@ -110,17 +110,6 @@ tailwind.config = {
         class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft">Ask Me</button>
     </div>
 
-    <!-- API Key (shared) -->
-    <div class="w-full max-w-md mb-5">
-      <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">ANTHROPIC API KEY</label>
-      <div class="flex gap-2">
-        <input id="apiKeyInput" type="password" placeholder="sk-ant-..."
-          class="flex-1 bg-panel/60 border border-white/5 rounded-xl px-4 py-2.5 text-sm text-soft placeholder-muted/40 outline-none focus:border-glow/30 transition-colors font-mono">
-        <button id="toggleKeyBtn" onclick="toggleKeyVisibility()"
-          class="px-3 py-2 rounded-xl text-xs font-mono border border-white/5 bg-panel/40 text-muted hover:border-white/10 hover:text-soft transition-all">Show</button>
-      </div>
-    </div>
-
     <!-- TOPIC MODE FIELDS -->
     <div id="topicFields" class="w-full max-w-md">
       <div class="mb-6">
