@@ -108,6 +108,8 @@ tailwind.config = {
         class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft">Study Material</button>
       <button onclick="switchMode('askme')" id="tabAskMe"
         class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft">Ask Me</button>
+      <button onclick="switchMode('lecture')" id="tabLecture"
+        class="mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft">Lecture</button>
     </div>
 
     <!-- TOPIC MODE FIELDS -->
@@ -211,6 +213,58 @@ tailwind.config = {
       </div>
 
       <p class="text-xs text-muted/50 text-center mb-4">Ask about formulas, concepts, definitions — I'll explain and read it to you.</p>
+    </div>
+
+    <!-- LECTURE MODE FIELDS -->
+    <div id="lectureFields" class="w-full max-w-md hidden">
+      <!-- Topic -->
+      <div class="mb-5">
+        <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">TOPIC <span class="text-muted/30">(OPTIONAL IF PDF PROVIDED)</span></label>
+        <div class="flex gap-2">
+          <input id="lectureTopicInput" type="text" placeholder="e.g. Newton's laws, photosynthesis, World War I..."
+            class="flex-1 bg-panel/60 border border-white/5 rounded-xl px-4 py-3 text-base text-soft placeholder-muted/40 outline-none focus:border-glow/30 transition-colors"
+            onkeydown="if(event.key==='Enter') startGame()">
+          <button onclick="voiceLectureTopic()"
+            class="w-12 flex items-center justify-center rounded-xl border border-white/5 bg-panel/40 text-muted hover:border-glow/20 hover:text-glow transition-all active:scale-95"
+            title="Speak your topic">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- PDF Upload -->
+      <div class="mb-4">
+        <label class="block text-xs font-mono text-muted/60 mb-1.5 text-left tracking-wide">UPLOAD NOTES <span class="text-muted/30">(OPTIONAL)</span></label>
+        <div id="lectureDropZone" class="drop-zone rounded-xl px-6 py-6 flex flex-col items-center gap-2.5 cursor-pointer"
+          onclick="document.getElementById('lecturePdfInput').click()">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-muted/40">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <polyline points="9 15 12 12 15 15"/>
+          </svg>
+          <p id="lectureDropLabel" class="text-sm text-muted">Drop a PDF here or <span class="text-glow">click to browse</span></p>
+          <p class="text-xs text-muted/40 font-mono">Teacher will lecture from your notes</p>
+        </div>
+        <input id="lecturePdfInput" type="file" accept=".pdf" class="hidden" onchange="handleLecturePDFSelect(event)">
+      </div>
+
+      <!-- File info -->
+      <div id="lecturePdfInfo" class="hidden mb-4 flex items-center gap-3 bg-panel/60 rounded-xl px-4 py-3 border border-correct/10">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <span id="lecturePdfNameEl" class="text-sm text-soft flex-1 truncate"></span>
+        <span id="lecturePdfPages" class="text-xs font-mono text-muted"></span>
+        <button onclick="clearLecturePDF()" class="text-xs text-wrong/60 hover:text-wrong font-mono transition-colors">Remove</button>
+      </div>
+
+      <p class="text-xs text-muted/50 text-center mb-4">A live call with your teacher — explains concepts, pauses for questions, quizzes you on the spot.</p>
     </div>
 
     <!-- Model Picker -->
@@ -357,6 +411,61 @@ tailwind.config = {
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
       </button>
+    </div>
+  </section>
+
+  <!-- SCREEN: Interactive Lecture -->
+  <section id="screenLecture" class="flex-1 flex-col hidden" style="max-height:calc(100vh - 80px)">
+    <div class="max-w-2xl mx-auto w-full px-5 flex-1 flex flex-col" style="max-height:calc(100vh - 80px)">
+      <!-- Header bar -->
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-glow/10 flex items-center justify-center">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.25h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.18a16 16 0 0 0 6 6l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.53 16z"/>
+            </svg>
+          </div>
+          <span class="font-mono text-xs text-glow/70 tracking-wider">INTERACTIVE LECTURE</span>
+          <span id="lectureTopicBadge" class="hidden text-[10px] font-mono bg-glow/10 text-glow/70 px-2 py-0.5 rounded-full ml-1 max-w-[140px] truncate"></span>
+        </div>
+        <button onclick="exitLecture()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border border-wrong/30 bg-wrong/10 text-wrong hover:bg-wrong/20 hover:border-wrong/50 transition-all active:scale-95">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          End Call
+        </button>
+      </div>
+
+      <!-- Transcript -->
+      <div id="lectureTranscript" class="flex-1 overflow-y-auto space-y-3 mb-3 pr-1" style="max-height:calc(100vh - 295px)"></div>
+
+      <!-- Voice indicator -->
+      <div id="lectureVoiceArea" class="flex flex-col items-center gap-1 py-2">
+        <div id="lectureVoiceInd" class="flex items-center gap-1 h-8"></div>
+        <p id="lectureVoiceLabel" class="text-xs font-mono text-muted h-4 text-center max-w-xs"></p>
+      </div>
+
+      <!-- Input area -->
+      <div class="flex gap-2 items-end pt-2 pb-1">
+        <input id="lectureInput" type="text" placeholder="Type or use mic to respond..."
+          class="flex-1 bg-panel/60 border border-white/5 rounded-xl px-4 py-3 text-sm text-soft placeholder-muted/40 outline-none focus:border-glow/30 transition-colors"
+          onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendLectureInput(); }">
+        <button onclick="voiceLectureInput()" id="btnLectureVoice"
+          class="w-11 h-11 flex items-center justify-center rounded-xl border border-white/5 bg-panel/40 text-muted hover:border-glow/20 hover:text-glow transition-all active:scale-95"
+          title="Respond with your voice">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+        <button onclick="sendLectureInput()"
+          class="w-11 h-11 flex items-center justify-center rounded-xl bg-glow hover:bg-amber-400 text-midnight transition-all active:scale-95"
+          title="Send">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </section>
 </div>

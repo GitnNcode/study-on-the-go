@@ -25,6 +25,13 @@ let S = {
   askmeContext: '',     // PDF text for grounding
   askmePdfName: '',
   askmeBusy: false,
+  // Interactive Lecture state
+  lectureMessages: [],
+  lectureContext: '',
+  lecturePdfName: '',
+  lectureTopic: '',
+  lectureBusy: false,
+  lectureActive: false,
 };
 
 // ════════════════════════════════════════
@@ -39,6 +46,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.speechSynthesis.getVoices();
     window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
   }
+  // Show which voice quality is available in this browser
+  setTimeout(_showVoiceBadge, 500); // wait for voices to load
 });
 
 function checkBrowser() {
@@ -117,8 +126,8 @@ function voiceFocus() {
 // ════════════════════════════════════════
 function switchMode(mode) {
   S.mode = mode;
-  const tabs = { topic: 'tabTopic', study: 'tabStudy', askme: 'tabAskMe' };
-  const fields = { topic: 'topicFields', study: 'studyFields', askme: 'askmeFields' };
+  const tabs = { topic: 'tabTopic', study: 'tabStudy', askme: 'tabAskMe', lecture: 'tabLecture' };
+  const fields = { topic: 'topicFields', study: 'studyFields', askme: 'askmeFields', lecture: 'lectureFields' };
   const activeClass = 'mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border-glow/30 bg-glow/10 text-glow';
   const inactiveClass = 'mode-tab flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted hover:text-soft';
 
@@ -129,16 +138,19 @@ function switchMode(mode) {
     document.getElementById(fieldId).classList.toggle('hidden', m !== mode);
   }
 
-  // Show/hide length picker (not relevant for askme)
+  // Show/hide length picker (not relevant for askme or lecture)
   const lengthPicker = document.getElementById('lengthPicker');
-  if (lengthPicker) lengthPicker.classList.toggle('hidden', mode === 'askme');
+  if (lengthPicker) lengthPicker.classList.toggle('hidden', mode === 'askme' || mode === 'lecture');
 
   // Update start button text
   const btn = document.getElementById('btnStart');
-  btn.textContent = mode === 'askme' ? 'Start Asking' : 'Generate & Start';
+  if (mode === 'askme') btn.textContent = 'Start Asking';
+  else if (mode === 'lecture') btn.textContent = 'Start Lecture';
+  else btn.textContent = 'Generate & Start';
 
   if (mode === 'study') initDropZone();
   if (mode === 'askme') initAskmeDropZone();
+  if (mode === 'lecture') initLectureDropZone();
 }
 
 // ════════════════════════════════════════
@@ -266,27 +278,52 @@ function setLength(n) {
 // TTS
 // ════════════════════════════════════════
 
-// Prefer enhanced/premium voices — they use neural TTS on macOS & Chrome
+function _showVoiceBadge() {
+  const header = document.getElementById('headerInfo');
+  if (!header) return;
+  // Show which voice engine will be used, based on what's available
+  const voices = window.speechSynthesis?.getVoices() || [];
+  const en = voices.filter(v => v.lang.startsWith('en'));
+  const isNeural = en.some(v => /microsoft.*online.*natural|premium|enhanced/i.test(v.name));
+  let badge = header.querySelector('#voiceBadge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.id = 'voiceBadge';
+    header.appendChild(badge);
+  }
+  badge.textContent = isNeural ? '✦ Neural voice' : '◌ Browser voice';
+  badge.className = `font-mono text-xs ${isNeural ? 'text-correct' : 'text-muted'}`;
+}
+
+// Prefer neural/enhanced voices — ranked by quality tier
 function pickVoice() {
   const voices = window.speechSynthesis.getVoices();
   const en = voices.filter(v => v.lang.startsWith('en'));
 
-  // 1. macOS "Premium" / "Enhanced" voices (neural quality)
+  // 1. Microsoft Edge "Online (Natural)" neural voices — best quality available for free
+  const msNatural = en.find(v => /microsoft.*online.*natural/i.test(v.name));
+  if (msNatural) return msNatural;
+
+  // 2. Any Microsoft neural/online voice (Edge)
+  const msOnline = en.find(v => /microsoft.*online/i.test(v.name));
+  if (msOnline) return msOnline;
+
+  // 3. macOS "Premium" / "Enhanced" neural voices
   const premium = en.find(v => /premium|enhanced/i.test(v.name));
   if (premium) return premium;
 
-  // 2. Specific high-quality macOS voices (Zoe, Samantha, Karen, Daniel)
+  // 4. Specific high-quality macOS voices
   const preferred = ['Zoe', 'Samantha', 'Karen', 'Daniel', 'Serena', 'Moira'];
   for (const name of preferred) {
     const match = en.find(v => v.name.includes(name));
     if (match) return match;
   }
 
-  // 3. Google voices in Chrome — smoother than default
+  // 5. Google voices in Chrome — smoother than default
   const google = en.find(v => /google/i.test(v.name));
   if (google) return google;
 
-  // 4. Any local English voice
+  // 6. Any local English voice
   return en.find(v => v.localService) || en[0] || null;
 }
 
@@ -410,6 +447,7 @@ function speak(text, { emotion = 'neutral' } = {}) {
   return new Promise(resolve => {
     window.speechSynthesis.cancel();
 
+    // ── Web Speech API ──
     const normalized = normalizeTTSText(text);
 
     // Split into sentences for more natural pacing — the engine handles shorter chunks better
@@ -425,21 +463,24 @@ function speak(text, { emotion = 'neutral' } = {}) {
 
       const u = new SpeechSynthesisUtterance(chunk);
 
-      // Conversational rate & pitch
-      u.rate = 0.93;
-      u.pitch = 1.02;
+      // Base conversational rate & pitch with tiny random variance (avoids robotic uniformity)
+      const jitter = () => (Math.random() - 0.5) * 0.04;
+      u.rate = 0.93 + jitter();
+      u.pitch = 1.02 + jitter();
       u.volume = 1.0;
 
-      if (emotion === 'excited') { u.rate = 1.02; u.pitch = 1.1; }
-      else if (emotion === 'encouraging') { u.rate = 0.90; u.pitch = 1.06; }
-      else if (emotion === 'sympathetic') { u.rate = 0.86; u.pitch = 0.96; }
+      if (emotion === 'excited') { u.rate = 1.02 + jitter(); u.pitch = 1.1 + jitter(); }
+      else if (emotion === 'encouraging') { u.rate = 0.90 + jitter(); u.pitch = 1.06 + jitter(); }
+      else if (emotion === 'sympathetic') { u.rate = 0.86 + jitter(); u.pitch = 0.96 + jitter(); }
 
       if (voice) u.voice = voice;
 
       u.onend = () => {
         idx++;
-        // Brief pause between sentences for natural breathing rhythm
-        setTimeout(speakNext, 180);
+        // Vary pause length by punctuation: longer after "?" and "!" for natural rhythm
+        const lastChar = chunk.slice(-1);
+        const pause = lastChar === '?' ? 280 : lastChar === '!' ? 220 : 160;
+        setTimeout(speakNext, pause);
       };
       u.onerror = () => { idx++; speakNext(); };
       window.speechSynthesis.speak(u);
@@ -592,7 +633,7 @@ function updateHeard(t) {
 // SCREENS
 // ════════════════════════════════════════
 function show(id) {
-  ['screenStart', 'screenQuiz', 'screenSummary', 'screenAskMe'].forEach(s => {
+  ['screenStart', 'screenQuiz', 'screenSummary', 'screenAskMe', 'screenLecture'].forEach(s => {
     const el = document.getElementById(s);
     el.classList.add('hidden'); el.classList.remove('flex');
   });
@@ -638,6 +679,8 @@ async function startGame() {
     await startAskMe();
   } else if (S.mode === 'study') {
     await startStudyGame();
+  } else if (S.mode === 'lecture') {
+    await startLecture();
   } else {
     await startTopicGame();
   }
@@ -1182,4 +1225,391 @@ function exitAskMe() {
   S.askmeMessages = [];
   document.getElementById('headerInfo').textContent = '';
   show('screenStart');
+}
+
+// ════════════════════════════════════════
+// INTERACTIVE LECTURE — PDF handling
+// ════════════════════════════════════════
+let lectureDropZoneInit = false;
+
+function initLectureDropZone() {
+  if (lectureDropZoneInit) return;
+  lectureDropZoneInit = true;
+
+  const zone = document.getElementById('lectureDropZone');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => { zone.classList.remove('dragover'); });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+      processLecturePDF(file);
+    } else {
+      showError('Please upload a PDF file.');
+    }
+  });
+}
+
+function handleLecturePDFSelect(event) {
+  const file = event.target.files[0];
+  if (file) processLecturePDF(file);
+}
+
+async function processLecturePDF(file) {
+  const dropZone = document.getElementById('lectureDropZone');
+  const dropLabel = document.getElementById('lectureDropLabel');
+  const fileInfo = document.getElementById('lecturePdfInfo');
+
+  dropLabel.textContent = 'Reading PDF...';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(item => item.str).join(' ') + '\n\n';
+    }
+
+    text = text.trim();
+    if (!text || text.length < 50) {
+      showError('Could not extract enough text from this PDF. It may be image-based.');
+      dropLabel.innerHTML = 'Drop a PDF here or <span class="text-glow">click to browse</span>';
+      return;
+    }
+
+    S.lectureContext = text;
+    S.lecturePdfName = file.name;
+
+    dropZone.classList.add('hidden');
+    fileInfo.classList.remove('hidden');
+    document.getElementById('lecturePdfNameEl').textContent = file.name;
+    document.getElementById('lecturePdfPages').textContent = `${pdf.numPages} page${pdf.numPages > 1 ? 's' : ''}`;
+  } catch (err) {
+    showError('Failed to read PDF: ' + (err.message || 'Unknown error'));
+    dropLabel.innerHTML = 'Drop a PDF here or <span class="text-glow">click to browse</span>';
+  }
+}
+
+function clearLecturePDF() {
+  S.lectureContext = '';
+  S.lecturePdfName = '';
+  document.getElementById('lectureDropZone').classList.remove('hidden');
+  document.getElementById('lecturePdfInfo').classList.add('hidden');
+  document.getElementById('lecturePdfInput').value = '';
+  document.getElementById('lectureDropLabel').innerHTML = 'Drop a PDF here or <span class="text-glow">click to browse</span>';
+}
+
+function voiceLectureTopic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  const input = document.getElementById('lectureTopicInput');
+  const r = new SR();
+  r.continuous = false;
+  r.interimResults = true;
+  r.lang = 'en-US';
+  r.onresult = e => {
+    let t = '';
+    for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+    input.value = t;
+  };
+  r.onend = () => {};
+  r.onerror = () => {};
+  r.start();
+}
+
+// ════════════════════════════════════════
+// INTERACTIVE LECTURE — Core flow
+// ════════════════════════════════════════
+let _lectureRecog = null;
+
+async function startLecture() {
+  const topicInput = document.getElementById('lectureTopicInput');
+  const topic = topicInput ? topicInput.value.trim() : '';
+
+  if (!topic && !S.lectureContext) {
+    showError('Please enter a topic or upload a PDF to lecture from.');
+    return;
+  }
+
+  S.lectureTopic = topic || S.lecturePdfName.replace(/\.pdf$/i, '') || 'your topic';
+  S.lectureMessages = [];
+  S.lectureActive = true;
+  S.lectureBusy = false;
+
+  show('screenLecture');
+
+  const badge = document.getElementById('lectureTopicBadge');
+  badge.textContent = S.lectureTopic.length > 28 ? S.lectureTopic.slice(0, 28) + '…' : S.lectureTopic;
+  badge.classList.remove('hidden');
+
+  document.getElementById('lectureTranscript').innerHTML = '';
+  document.getElementById('headerInfo').textContent = S.lectureTopic.toUpperCase().slice(0, 25);
+
+  // Kick off the lecture
+  const kickoff = topic
+    ? `Please start the interactive lecture on: ${topic}`
+    : 'Please start the interactive lecture based on my study material.';
+
+  S.lectureMessages.push({ role: 'user', content: kickoff });
+  showLectureSpeaking('Preparing your lecture...');
+
+  try {
+    const response = await ClaudeAPI.conductLecture(S.lectureMessages, S.lectureContext, S.lectureTopic);
+    S.lectureMessages.push({ role: 'assistant', content: response });
+    renderLectureMessage('assistant', response);
+    showLectureSpeaking();
+    await speak(response, { emotion: 'encouraging' });
+
+    if (!S.lectureActive) return;
+    await lectureListenLoop();
+  } catch (err) {
+    showLectureLabel('Error starting lecture: ' + (err.message || 'Unknown error'));
+  }
+}
+
+async function lectureListenLoop() {
+  if (!S.lectureActive || S.lectureBusy) return;
+
+  clearLectureVoice();
+  showLectureListening();
+
+  const transcript = await listenFreeform();
+
+  if (!S.lectureActive) return;
+
+  if (!transcript) {
+    // Timed out with nothing heard — gently prompt
+    showLectureSpeaking();
+    await speak("Take your time. Say 'continue' to move on, or ask me anything.", { emotion: 'encouraging' });
+    if (!S.lectureActive) return;
+    await lectureListenLoop();
+    return;
+  }
+
+  // Detect exit phrases
+  const lower = transcript.toLowerCase().trim();
+  const exitPhrases = ['stop', 'exit', 'end the lecture', 'goodbye', "that's all", 'that is all', 'end call'];
+  const isExit = exitPhrases.some(p => lower.includes(p));
+
+  await sendLectureMessage(transcript, isExit);
+}
+
+async function sendLectureMessage(text, isExit = false) {
+  if (S.lectureBusy || !S.lectureActive) return;
+  S.lectureBusy = true;
+
+  window.speechSynthesis.cancel();
+  renderLectureMessage('user', text);
+  S.lectureMessages.push({ role: 'user', content: text });
+
+  showLectureTyping(true);
+
+  try {
+    const response = await ClaudeAPI.conductLecture(S.lectureMessages, S.lectureContext, S.lectureTopic);
+    showLectureTyping(false);
+    S.lectureMessages.push({ role: 'assistant', content: response });
+    renderLectureMessage('assistant', response);
+
+    showLectureSpeaking();
+    await speak(response, { emotion: 'encouraging' });
+    S.lectureBusy = false;
+
+    if (!S.lectureActive) return;
+
+    if (isExit) {
+      await new Promise(r => setTimeout(r, 800));
+      exitLecture();
+    } else {
+      await lectureListenLoop();
+    }
+  } catch (err) {
+    showLectureTyping(false);
+    renderLectureMessage('assistant', 'Sorry, something went wrong. ' + (err.message || ''));
+    S.lectureBusy = false;
+  }
+}
+
+// Free-form speech recognition (no letter matching — full transcript)
+function listenFreeform() {
+  return new Promise(resolve => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { resolve(''); return; }
+
+    const r = new SR();
+    r.continuous = false;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+    r.lang = 'en-US';
+    _lectureRecog = r;
+
+    let final = '';
+    let done = false;
+
+    const timer = setTimeout(() => {
+      if (!done) { done = true; _lectureRecog = null; try { r.stop(); } catch {} resolve(final); }
+    }, 14000);
+
+    r.onresult = e => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      if (e.results[e.results.length - 1].isFinal) {
+        final = t;
+        if (!done) { clearTimeout(timer); done = true; _lectureRecog = null; try { r.stop(); } catch {} resolve(final); }
+      } else {
+        showLectureInterim(t);
+      }
+    };
+    r.onerror = () => { if (!done) { clearTimeout(timer); done = true; _lectureRecog = null; resolve(final); } };
+    r.onend = () => { if (!done) { clearTimeout(timer); done = true; _lectureRecog = null; resolve(final); } };
+
+    try { r.start(); } catch { resolve(''); }
+  });
+}
+
+function stopLectureRecog() {
+  if (_lectureRecog) {
+    const r = _lectureRecog;
+    _lectureRecog = null;
+    try { r.onend = null; r.stop(); } catch {}
+  }
+}
+
+// ════════════════════════════════════════
+// INTERACTIVE LECTURE — UI helpers
+// ════════════════════════════════════════
+function renderLectureMessage(role, text) {
+  const chat = document.getElementById('lectureTranscript');
+  const isUser = role === 'user';
+  const el = document.createElement('div');
+  el.className = `flex ${isUser ? 'justify-end' : 'justify-start'} fade-in`;
+  el.innerHTML = `
+    <div class="${isUser
+      ? 'bg-glow/10 border border-glow/10 rounded-2xl rounded-tr-md'
+      : 'bg-panel/60 border border-white/[0.04] rounded-2xl rounded-tl-md'} px-4 py-3 max-w-[85%]">
+      <p class="text-sm ${isUser ? 'text-soft' : 'text-soft/80'} leading-relaxed">${escapeHTML(text)}</p>
+    </div>`;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function showLectureTyping(on) {
+  const chat = document.getElementById('lectureTranscript');
+  const existing = document.getElementById('lectureTypingBubble');
+  if (on && !existing) {
+    const el = document.createElement('div');
+    el.id = 'lectureTypingBubble';
+    el.className = 'flex justify-start fade-in';
+    el.innerHTML = `
+      <div class="bg-panel/60 border border-white/[0.04] rounded-2xl rounded-tl-md px-4 py-3">
+        <div class="loader-dots flex gap-1.5">
+          <span class="w-2 h-2 bg-glow/60 rounded-full"></span>
+          <span class="w-2 h-2 bg-glow/60 rounded-full"></span>
+          <span class="w-2 h-2 bg-glow/60 rounded-full"></span>
+        </div>
+      </div>`;
+    chat.appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+  } else if (!on && existing) {
+    existing.remove();
+  }
+}
+
+function showLectureSpeaking(label) {
+  document.getElementById('lectureVoiceInd').innerHTML = '<div class="w-3 h-3 rounded-full bg-glow/50 pulse-ring"></div>';
+  document.getElementById('lectureVoiceLabel').textContent = label || 'Speaking...';
+}
+
+function showLectureListening() {
+  const ind = document.getElementById('lectureVoiceInd');
+  ind.innerHTML = Array.from({ length: 5 }, (_, i) =>
+    `<div class="w-1 bg-glow rounded-full wave-bar" style="animation-delay:${i * 0.12}s;height:${10 + Math.random() * 14}px"></div>`
+  ).join('');
+  document.getElementById('lectureVoiceLabel').textContent = 'Listening — respond or ask a question...';
+}
+
+function showLectureInterim(t) {
+  if (t) document.getElementById('lectureVoiceLabel').textContent = `"${t}"`;
+}
+
+function showLectureLabel(text) {
+  document.getElementById('lectureVoiceLabel').textContent = text;
+}
+
+function clearLectureVoice() {
+  document.getElementById('lectureVoiceInd').innerHTML = '';
+  document.getElementById('lectureVoiceLabel').textContent = '';
+}
+
+function exitLecture() {
+  S.lectureActive = false;
+  S.lectureBusy = false;
+  stopLectureRecog();
+  window.speechSynthesis.cancel();
+  document.getElementById('headerInfo').textContent = '';
+  show('screenStart');
+}
+
+// ════════════════════════════════════════
+// INTERACTIVE LECTURE — Manual input
+// ════════════════════════════════════════
+async function sendLectureInput() {
+  const input = document.getElementById('lectureInput');
+  const text = input.value.trim();
+  if (!text || S.lectureBusy || !S.lectureActive) return;
+  input.value = '';
+
+  // Cancel any active auto-listen
+  stopLectureRecog();
+  clearLectureVoice();
+
+  const lower = text.toLowerCase();
+  const isExit = ['stop', 'exit', 'end', 'goodbye', "that's all", 'end call'].some(p => lower.includes(p));
+  await sendLectureMessage(text, isExit);
+}
+
+async function voiceLectureInput() {
+  if (S.lectureBusy || !S.lectureActive) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+
+  // Cancel any ongoing speech and auto-listen
+  window.speechSynthesis.cancel();
+  stopLectureRecog();
+
+  const input = document.getElementById('lectureInput');
+  const btn = document.getElementById('btnLectureVoice');
+  const r = new SR();
+  r.continuous = false;
+  r.interimResults = true;
+  r.lang = 'en-US';
+
+  btn.classList.add('border-glow/40', 'text-glow');
+  btn.disabled = true;
+  showLectureListening();
+
+  r.onresult = e => {
+    let t = '';
+    for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+    input.value = t;
+    showLectureInterim(t);
+  };
+
+  r.onend = () => {
+    btn.classList.remove('border-glow/40', 'text-glow');
+    btn.disabled = false;
+    clearLectureVoice();
+    if (input.value.trim()) sendLectureInput();
+  };
+
+  r.onerror = () => {
+    btn.classList.remove('border-glow/40', 'text-glow');
+    btn.disabled = false;
+    clearLectureVoice();
+  };
+
+  r.start();
 }

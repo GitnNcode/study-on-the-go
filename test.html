@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DriveTrivia — Test Panel</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        midnight: '#0a0e17', surface: '#111827', panel: '#1a2236',
+        glow: '#f59e0b', correct: '#10b981', wrong: '#ef4444',
+        muted: '#6b7280', soft: '#e5e7eb',
+      },
+      fontFamily: {
+        sans: ['"DM Sans"', 'system-ui'],
+        mono: ['"Space Mono"', 'monospace'],
+      },
+    }
+  }
+}
+</script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,500;9..40,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+<style>
+  body { background: #0a0e17; color: #e5e7eb; font-family: 'DM Sans', sans-serif; }
+  .card { background: #111827; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-family: 'Space Mono', monospace; }
+  .badge-ok  { background: rgba(16,185,129,0.15); color: #10b981; }
+  .badge-warn { background: rgba(245,158,11,0.15); color: #f59e0b; }
+  .badge-err { background: rgba(239,68,68,0.15);  color: #ef4444; }
+  .badge-muted { background: rgba(107,114,128,0.15); color: #6b7280; }
+  input[type=range] { accent-color: #f59e0b; }
+  textarea, input[type=text] {
+    background: #1a2236; border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; color: #e5e7eb; padding: 10px 12px; width: 100%; outline: none;
+    font-family: 'DM Sans', sans-serif; font-size: 14px;
+    transition: border-color 0.2s;
+  }
+  textarea:focus, input[type=text]:focus { border-color: rgba(245,158,11,0.4); }
+  select {
+    background: #1a2236; border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; color: #e5e7eb; padding: 8px 12px; outline: none;
+    font-family: 'Space Mono', monospace; font-size: 12px; cursor: pointer;
+  }
+  button {
+    padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; border: none; font-family: 'DM Sans', sans-serif;
+  }
+  .btn-primary { background: #f59e0b; color: #0a0e17; }
+  .btn-primary:hover { background: #fbbf24; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost { background: rgba(255,255,255,0.06); color: #e5e7eb; }
+  .btn-ghost:hover { background: rgba(255,255,255,0.1); }
+  .btn-danger { background: rgba(239,68,68,0.15); color: #ef4444; }
+  .btn-danger:hover { background: rgba(239,68,68,0.25); }
+  .result-box {
+    background: #0a0e17; border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.6;
+    min-height: 48px; white-space: pre-wrap; word-break: break-word;
+    font-family: 'Space Mono', monospace; color: #9ca3af;
+  }
+  .result-box.ok { color: #e5e7eb; }
+  .section-title { font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 0.1em; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; }
+  .label { font-size: 12px; color: #6b7280; margin-bottom: 4px; display: block; }
+  .divider { border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 6px 0 14px; }
+  .voice-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; }
+  .voice-row:last-child { border-bottom: none; }
+</style>
+</head>
+<body class="min-h-screen p-6">
+
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="font-mono text-glow text-sm tracking-widest">DRIVETRIVIA</h1>
+      <p class="text-muted text-xs font-mono mt-0.5">test panel — not linked from main app</p>
+    </div>
+    <div id="apiStatus" class="badge badge-muted">API: checking…</div>
+  </div>
+
+  <!-- ── 1. TTS ── -->
+  <div class="card">
+    <div class="section-title">1 · Text-to-Speech</div>
+
+    <div class="flex gap-3 mb-3">
+      <div class="flex-1">
+        <span class="label">Voice</span>
+        <select id="ttsVoice" class="w-full"></select>
+      </div>
+      <div>
+        <span class="label">Rate <span id="rateVal" class="text-glow">0.93</span></span>
+        <input type="range" id="ttsRate" min="0.5" max="1.5" step="0.01" value="0.93" class="w-32 mt-2">
+      </div>
+      <div>
+        <span class="label">Pitch <span id="pitchVal" class="text-glow">1.02</span></span>
+        <input type="range" id="ttsPitch" min="0.5" max="2.0" step="0.01" value="1.02" class="w-32 mt-2">
+      </div>
+    </div>
+
+    <textarea id="ttsText" rows="3" placeholder="Type something to speak…">Hello! This is a test of the text-to-speech engine. How does this voice sound to you?</textarea>
+
+    <div class="flex gap-2 mt-3">
+      <button class="btn-primary" onclick="testSpeak()">▶ Speak</button>
+      <button class="btn-ghost" onclick="window.speechSynthesis.cancel()">■ Stop</button>
+      <button class="btn-ghost" onclick="testSpeakLong()">▶ Long text</button>
+    </div>
+
+    <hr class="divider">
+    <div class="section-title">Available voices</div>
+    <div id="voiceList" class="result-box ok" style="max-height:200px;overflow-y:auto;font-size:11px;padding:8px;"></div>
+  </div>
+
+  <!-- ── 2. STT ── -->
+  <div class="card">
+    <div class="section-title">2 · Speech Recognition (STT)</div>
+
+    <div class="flex gap-2 mb-3">
+      <button class="btn-primary" id="sttBtn" onclick="toggleSTT()">🎤 Start listening</button>
+      <div id="sttStatus" class="badge badge-muted">idle</div>
+    </div>
+
+    <span class="label">Transcript</span>
+    <div id="sttResult" class="result-box">Waiting for speech…</div>
+
+    <span class="label mt-3 block">Interim (live)</span>
+    <div id="sttInterim" class="result-box" style="color:#6b7280;font-style:italic">—</div>
+  </div>
+
+  <!-- ── 3. Claude API ── -->
+  <div class="card">
+    <div class="section-title">3 · Claude API</div>
+
+    <div class="flex gap-3 mb-3">
+      <div class="flex-1">
+        <span class="label">Model</span>
+        <select id="claudeModel" class="w-full">
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+        </select>
+      </div>
+      <div class="flex-1">
+        <span class="label">Max tokens</span>
+        <input type="text" id="claudeMaxTokens" value="256" style="width:100%">
+      </div>
+    </div>
+
+    <span class="label">System prompt</span>
+    <textarea id="claudeSystem" rows="2" placeholder="System prompt…">You are a helpful assistant. Keep answers to 1-2 sentences.</textarea>
+
+    <span class="label mt-3 block">User message</span>
+    <div class="flex gap-2">
+      <textarea id="claudeMsg" rows="2" placeholder="Ask something…" style="flex:1">What is photosynthesis?</textarea>
+    </div>
+
+    <div class="flex gap-2 mt-3">
+      <button class="btn-primary" id="claudeBtn" onclick="testClaude()">▶ Send</button>
+      <button class="btn-ghost" onclick="testQuizGen()">▶ Quiz (5 Qs on "gravity")</button>
+    </div>
+
+    <span class="label mt-3 block">Response</span>
+    <div id="claudeResult" class="result-box">No request sent yet.</div>
+
+    <div id="claudeMeta" class="flex gap-2 mt-2"></div>
+  </div>
+
+  <!-- ── 4. PDF Parsing ── -->
+  <div class="card">
+    <div class="section-title">4 · PDF Parsing</div>
+    <input type="file" id="pdfInput" accept="application/pdf" class="hidden" onchange="testPDF(this)">
+    <div class="flex gap-2 mb-3">
+      <button class="btn-ghost" onclick="document.getElementById('pdfInput').click()">📄 Load PDF</button>
+      <div id="pdfStatus" class="badge badge-muted">no file</div>
+    </div>
+    <span class="label">Extracted text (first 1000 chars)</span>
+    <div id="pdfResult" class="result-box">No PDF loaded.</div>
+    <div id="pdfMeta" class="text-xs text-muted mt-2"></div>
+  </div>
+
+  <!-- ── 5. Full Roundtrip ── -->
+  <div class="card">
+    <div class="section-title">5 · Full roundtrip — STT → Claude → TTS</div>
+    <p class="text-muted text-sm mb-3">Speak a question, Claude answers, the answer is read aloud.</p>
+    <div class="flex gap-2 mb-3">
+      <button class="btn-primary" id="roundtripBtn" onclick="startRoundtrip()">🎤 Ask with voice</button>
+      <button class="btn-danger" onclick="stopRoundtrip()">■ Stop</button>
+      <div id="roundtripStatus" class="badge badge-muted">idle</div>
+    </div>
+    <span class="label">You said</span>
+    <div id="roundtripInput" class="result-box mb-2">—</div>
+    <span class="label">Claude said</span>
+    <div id="roundtripOutput" class="result-box">—</div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script>
+// ── Config ──
+let apiKey = '';
+let recog = null;
+let sttActive = false;
+let roundtripRecog = null;
+
+async function init() {
+  await ClaudeAPI.loadConfig();
+  apiKey = ClaudeAPI.getConfig().apiKey;
+  const el = document.getElementById('apiStatus');
+  if (apiKey) {
+    el.textContent = 'API: connected';
+    el.className = 'badge badge-ok';
+  } else {
+    el.textContent = 'API: no key in config.json';
+    el.className = 'badge badge-err';
+  }
+  loadVoices();
+  if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }
+}
+
+// ── 1. TTS ──
+function loadVoices() {
+  const voices = window.speechSynthesis?.getVoices() || [];
+  const sel = document.getElementById('ttsVoice');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const en = voices.filter(v => v.lang.startsWith('en'));
+  const other = voices.filter(v => !v.lang.startsWith('en'));
+
+  const addGroup = (label, list) => {
+    if (!list.length) return;
+    const g = document.createElement('optgroup');
+    g.label = label;
+    list.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.name;
+      o.textContent = `${v.name} (${v.lang})`;
+      if (v.name === prev) o.selected = true;
+      g.appendChild(o);
+    });
+    sel.appendChild(g);
+  };
+  addGroup('English', en);
+  addGroup('Other', other);
+
+  // Render voice list
+  const list = document.getElementById('voiceList');
+  if (!voices.length) { list.textContent = 'No voices found.'; return; }
+  list.innerHTML = voices.map(v => {
+    const tier = /microsoft.*online.*natural/i.test(v.name) ? '🟢 Neural (Edge)'
+      : /premium|enhanced/i.test(v.name) ? '🟢 Neural (macOS)'
+      : /google/i.test(v.name) ? '🟡 Google'
+      : /microsoft.*online/i.test(v.name) ? '🟡 MS Online'
+      : v.localService ? '⚪ Local'
+      : '⚪ Basic';
+    return `<div class="voice-row"><span>${v.name}</span><span style="color:#6b7280">${v.lang}</span><span>${tier}</span></div>`;
+  }).join('');
+}
+
+document.getElementById('ttsRate').addEventListener('input', e => {
+  document.getElementById('rateVal').textContent = e.target.value;
+});
+document.getElementById('ttsPitch').addEventListener('input', e => {
+  document.getElementById('pitchVal').textContent = e.target.value;
+});
+
+function testSpeak() {
+  const text = document.getElementById('ttsText').value;
+  const voiceName = document.getElementById('ttsVoice').value;
+  const rate = parseFloat(document.getElementById('ttsRate').value);
+  const pitch = parseFloat(document.getElementById('ttsPitch').value);
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = rate; u.pitch = pitch; u.volume = 1.0;
+  const voices = window.speechSynthesis.getVoices();
+  u.voice = voices.find(v => v.name === voiceName) || null;
+  window.speechSynthesis.speak(u);
+}
+
+function testSpeakLong() {
+  document.getElementById('ttsText').value = 'The quick brown fox jumps over the lazy dog. ' +
+    'Text-to-speech synthesis converts written text into spoken words using complex algorithms. ' +
+    'Modern neural voices sound remarkably natural compared to older robotic synthesizers. ' +
+    'This is a longer sentence to check how the engine handles pacing, pauses, and breath rhythm over multiple clauses.';
+  testSpeak();
+}
+
+// ── 2. STT ──
+function toggleSTT() {
+  if (sttActive) { stopSTT(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    document.getElementById('sttStatus').textContent = 'Not supported';
+    document.getElementById('sttStatus').className = 'badge badge-err';
+    return;
+  }
+  recog = new SR();
+  recog.lang = 'en-US';
+  recog.continuous = true;
+  recog.interimResults = true;
+
+  recog.onstart = () => {
+    sttActive = true;
+    document.getElementById('sttBtn').textContent = '■ Stop';
+    document.getElementById('sttStatus').textContent = 'listening…';
+    document.getElementById('sttStatus').className = 'badge badge-ok';
+  };
+  recog.onresult = e => {
+    let final = '', interim = '';
+    for (const r of e.results) {
+      if (r.isFinal) final += r[0].transcript + ' ';
+      else interim += r[0].transcript;
+    }
+    if (final) document.getElementById('sttResult').textContent = final.trim();
+    document.getElementById('sttInterim').textContent = interim || '—';
+  };
+  recog.onerror = e => {
+    document.getElementById('sttStatus').textContent = `error: ${e.error}`;
+    document.getElementById('sttStatus').className = 'badge badge-err';
+    sttActive = false;
+    document.getElementById('sttBtn').textContent = '🎤 Start listening';
+  };
+  recog.onend = () => stopSTT();
+  recog.start();
+}
+
+function stopSTT() {
+  if (recog) recog.stop();
+  sttActive = false;
+  document.getElementById('sttBtn').textContent = '🎤 Start listening';
+  document.getElementById('sttStatus').textContent = 'stopped';
+  document.getElementById('sttStatus').className = 'badge badge-muted';
+}
+
+// ── 3. Claude API ──
+async function testClaude() {
+  const btn = document.getElementById('claudeBtn');
+  const result = document.getElementById('claudeResult');
+  const meta = document.getElementById('claudeMeta');
+  const model = document.getElementById('claudeModel').value;
+  const maxTokens = parseInt(document.getElementById('claudeMaxTokens').value) || 256;
+  const system = document.getElementById('claudeSystem').value;
+  const msg = document.getElementById('claudeMsg').value;
+
+  if (!apiKey) { result.textContent = 'No API key — add it to config.json'; return; }
+
+  btn.disabled = true;
+  btn.textContent = '…';
+  result.textContent = 'Waiting…';
+  result.className = 'result-box';
+  meta.innerHTML = '';
+
+  const t0 = Date.now();
+  try {
+    ClaudeAPI.configure({ model, maxTokens });
+    const text = await ClaudeAPI.sendMessage(system, msg);
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+    result.textContent = text;
+    result.className = 'result-box ok';
+    meta.innerHTML = `<span class="badge badge-ok">${elapsed}s</span><span class="badge badge-muted">${model}</span>`;
+  } catch (e) {
+    result.textContent = e.message;
+    result.className = 'result-box';
+    meta.innerHTML = `<span class="badge badge-err">error</span>`;
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ Send';
+}
+
+async function testQuizGen() {
+  const result = document.getElementById('claudeResult');
+  const meta = document.getElementById('claudeMeta');
+  result.textContent = 'Generating 5 quiz questions about gravity…';
+  result.className = 'result-box';
+  meta.innerHTML = '';
+  const t0 = Date.now();
+  try {
+    const qs = await ClaudeAPI.generateQuestions('gravity (physics)');
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+    const preview = qs.slice(0, 5).map((q, i) =>
+      `Q${i+1}: ${q.q}\n  ✓ ${q.opts[['A','B','C','D'].indexOf(q.a)]}\n  Why: ${q.why}`
+    ).join('\n\n');
+    result.textContent = preview;
+    result.className = 'result-box ok';
+    meta.innerHTML = `<span class="badge badge-ok">${elapsed}s</span><span class="badge badge-muted">${qs.length} questions</span>`;
+  } catch (e) {
+    result.textContent = e.message;
+  }
+}
+
+// ── 4. PDF ──
+async function testPDF(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('pdfStatus');
+  const resultEl = document.getElementById('pdfResult');
+  const meta = document.getElementById('pdfMeta');
+  status.textContent = 'parsing…';
+  status.className = 'badge badge-warn';
+  resultEl.textContent = '…';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText += content.items.map(item => item.str).join(' ') + '\n';
+    }
+    const chars = fullText.trim().length;
+    resultEl.textContent = fullText.trim().slice(0, 1000) + (chars > 1000 ? '\n\n[… truncated]' : '');
+    resultEl.className = 'result-box ok';
+    status.textContent = `${pdf.numPages} pages`;
+    status.className = 'badge badge-ok';
+    meta.textContent = `${chars.toLocaleString()} characters extracted`;
+  } catch (e) {
+    resultEl.textContent = `Error: ${e.message}`;
+    status.textContent = 'failed';
+    status.className = 'badge badge-err';
+  }
+}
+
+// ── 5. Full Roundtrip ──
+function setRoundtripStatus(text, cls) {
+  const el = document.getElementById('roundtripStatus');
+  el.textContent = text;
+  el.className = `badge ${cls}`;
+}
+
+async function startRoundtrip() {
+  if (!apiKey) { setRoundtripStatus('no API key', 'badge-err'); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { setRoundtripStatus('STT not supported', 'badge-err'); return; }
+
+  document.getElementById('roundtripInput').textContent = '—';
+  document.getElementById('roundtripOutput').textContent = '—';
+  setRoundtripStatus('listening…', 'badge-ok');
+
+  roundtripRecog = new SR();
+  roundtripRecog.lang = 'en-US';
+  roundtripRecog.interimResults = false;
+
+  roundtripRecog.onresult = async e => {
+    const transcript = e.results[0][0].transcript;
+    document.getElementById('roundtripInput').textContent = transcript;
+    setRoundtripStatus('thinking…', 'badge-warn');
+    try {
+      const reply = await ClaudeAPI.sendMessage(
+        'You are a helpful tutor. Answer in 2-3 sentences, plain conversational English, no markdown.',
+        transcript
+      );
+      document.getElementById('roundtripOutput').textContent = reply;
+      setRoundtripStatus('speaking…', 'badge-ok');
+      const voiceName = document.getElementById('ttsVoice').value;
+      const voices = window.speechSynthesis.getVoices();
+      const u = new SpeechSynthesisUtterance(reply);
+      u.rate = parseFloat(document.getElementById('ttsRate').value);
+      u.pitch = parseFloat(document.getElementById('ttsPitch').value);
+      u.voice = voices.find(v => v.name === voiceName) || null;
+      u.onend = () => setRoundtripStatus('done', 'badge-muted');
+      window.speechSynthesis.speak(u);
+    } catch (err) {
+      document.getElementById('roundtripOutput').textContent = `Error: ${err.message}`;
+      setRoundtripStatus('error', 'badge-err');
+    }
+  };
+
+  roundtripRecog.onerror = e => setRoundtripStatus(`error: ${e.error}`, 'badge-err');
+  roundtripRecog.onend = () => {
+    if (document.getElementById('roundtripStatus').textContent === 'listening…') {
+      setRoundtripStatus('no speech detected', 'badge-muted');
+    }
+  };
+  roundtripRecog.start();
+}
+
+function stopRoundtrip() {
+  if (roundtripRecog) roundtripRecog.stop();
+  window.speechSynthesis.cancel();
+  setRoundtripStatus('stopped', 'badge-muted');
+}
+
+init();
+</script>
+</body>
+</html>
