@@ -278,19 +278,34 @@ function setLength(n) {
 // TTS
 // ════════════════════════════════════════
 
+// Tracks current ElevenLabs Audio element so we can cancel it
+let _currentElevenLabsAudio = null;
+
+function cancelSpeech() {
+  window.speechSynthesis.cancel();
+  if (_currentElevenLabsAudio) {
+    _currentElevenLabsAudio.pause();
+    _currentElevenLabsAudio = null;
+  }
+}
+
 function _showVoiceBadge() {
   const header = document.getElementById('headerInfo');
   if (!header) return;
-  // Show which voice engine will be used, based on what's available
-  const voices = window.speechSynthesis?.getVoices() || [];
-  const en = voices.filter(v => v.lang.startsWith('en'));
-  const isNeural = en.some(v => /microsoft.*online.*natural|premium|enhanced/i.test(v.name));
   let badge = header.querySelector('#voiceBadge');
   if (!badge) {
     badge = document.createElement('span');
     badge.id = 'voiceBadge';
     header.appendChild(badge);
   }
+  if (ElevenLabsTTS.isReady()) {
+    badge.textContent = '✦ ElevenLabs';
+    badge.className = 'font-mono text-xs text-correct';
+    return;
+  }
+  const voices = window.speechSynthesis?.getVoices() || [];
+  const en = voices.filter(v => v.lang.startsWith('en'));
+  const isNeural = en.some(v => /microsoft.*online.*natural|premium|enhanced/i.test(v.name));
   badge.textContent = isNeural ? '✦ Neural voice' : '◌ Browser voice';
   badge.className = `font-mono text-xs ${isNeural ? 'text-correct' : 'text-muted'}`;
 }
@@ -444,26 +459,56 @@ function normalizeTTSText(text) {
 }
 
 function speak(text, { emotion = 'neutral' } = {}) {
-  return new Promise(resolve => {
-    window.speechSynthesis.cancel();
+  return new Promise(async resolve => {
+    cancelSpeech();
 
-    // ── Web Speech API ──
     const normalized = normalizeTTSText(text);
 
-    // Split into sentences for more natural pacing — the engine handles shorter chunks better
+    // ── ElevenLabs TTS (primary) ──
+    if (ElevenLabsTTS.isReady()) {
+      const emotionSettings = {
+        excited:     { stability: 0.35, similarity_boost: 0.80, style: 0.40 },
+        encouraging: { stability: 0.45, similarity_boost: 0.78, style: 0.20 },
+        sympathetic: { stability: 0.55, similarity_boost: 0.72, style: 0.10 },
+        neutral:     { stability: 0.50, similarity_boost: 0.75, style: 0.00 },
+      };
+      const settings = emotionSettings[emotion] || emotionSettings.neutral;
+
+      try {
+        const audioData = await ElevenLabsTTS.synthesize(normalized, settings);
+        const blob = new Blob([audioData], { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        _currentElevenLabsAudio = audio;
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          _currentElevenLabsAudio = null;
+          resolve();
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          _currentElevenLabsAudio = null;
+          resolve();
+        };
+        audio.play();
+        return;
+      } catch (e) {
+        console.warn('ElevenLabs TTS failed, falling back to Web Speech API:', e.message);
+      }
+    }
+
+    // ── Web Speech API (fallback) ──
     const sentences = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [normalized];
     const voice = pickVoice();
 
     let idx = 0;
     function speakNext() {
       if (idx >= sentences.length) { resolve(); return; }
-      // Strip trailing periods/ellipsis so TTS doesn't say "full stop" or "dot"
       const chunk = sentences[idx].trim().replace(/[.]+$/, '').trim();
       if (!chunk) { idx++; speakNext(); return; }
 
       const u = new SpeechSynthesisUtterance(chunk);
 
-      // Base conversational rate & pitch with tiny random variance (avoids robotic uniformity)
       const jitter = () => (Math.random() - 0.5) * 0.04;
       u.rate = 0.93 + jitter();
       u.pitch = 1.02 + jitter();
@@ -477,7 +522,6 @@ function speak(text, { emotion = 'neutral' } = {}) {
 
       u.onend = () => {
         idx++;
-        // Vary pause length by punctuation: longer after "?" and "!" for natural rhythm
         const lastChar = chunk.slice(-1);
         const pause = lastChar === '?' ? 280 : lastChar === '!' ? 220 : 160;
         setTimeout(speakNext, pause);
@@ -790,7 +834,7 @@ async function runQ() {
 
   if (earlyAnswer?.match) {
     // User answered mid-question — cancel speech and stop passive listener
-    window.speechSynthesis.cancel();
+    cancelSpeech();
     stopPassiveListener();
   } else {
     // Speech finished normally — stop the passive listener
@@ -931,7 +975,7 @@ async function finish() {
 }
 
 function stopVoice() {
-  window.speechSynthesis.cancel();
+  cancelSpeech();
   if (S.recog) try { S.recog.stop(); } catch { }
   S.listening = false;
 }
@@ -1143,7 +1187,7 @@ async function sendAskMe() {
   input.value = '';
 
   // Stop any ongoing speech
-  window.speechSynthesis.cancel();
+  cancelSpeech();
 
   // Show user message
   renderAskmeMessage('user', text);
@@ -1181,7 +1225,7 @@ async function voiceAskMe() {
   if (!SR) return;
 
   // Stop any ongoing speech
-  window.speechSynthesis.cancel();
+  cancelSpeech();
 
   const input = document.getElementById('askmeInput');
   const btn = document.getElementById('btnAskMeVoice');
@@ -1402,7 +1446,7 @@ async function sendLectureMessage(text, isExit = false) {
   if (S.lectureBusy || !S.lectureActive) return;
   S.lectureBusy = true;
 
-  window.speechSynthesis.cancel();
+  cancelSpeech();
   renderLectureMessage('user', text);
   S.lectureMessages.push({ role: 'user', content: text });
 
@@ -1548,7 +1592,7 @@ function exitLecture() {
   S.lectureActive = false;
   S.lectureBusy = false;
   stopLectureRecog();
-  window.speechSynthesis.cancel();
+  cancelSpeech();
   document.getElementById('headerInfo').textContent = '';
   show('screenStart');
 }
@@ -1577,7 +1621,7 @@ async function voiceLectureInput() {
   if (!SR) return;
 
   // Cancel any ongoing speech and auto-listen
-  window.speechSynthesis.cancel();
+  cancelSpeech();
   stopLectureRecog();
 
   const input = document.getElementById('lectureInput');

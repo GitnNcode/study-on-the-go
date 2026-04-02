@@ -1,4 +1,51 @@
 // ════════════════════════════════════════
+// ElevenLabs TTS — Service
+// ════════════════════════════════════════
+
+const ElevenLabsTTS = (() => {
+  let _apiKey = '';
+  let _voiceId = '';
+  const BASE_URL = 'https://api.elevenlabs.io/v1';
+
+  function init(key, voiceId) {
+    _apiKey = key;
+    _voiceId = voiceId;
+  }
+
+  async function synthesize(text, { stability = 0.50, similarity_boost = 0.75, style = 0.0 } = {}) {
+    if (!_apiKey || !_voiceId) throw new Error('ElevenLabs API key or voice ID not set');
+
+    const res = await fetch(`${BASE_URL}/text-to-speech/${_voiceId}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': _apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+      },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_flash_v2_5',
+        output_format: 'mp3_22050_32',
+        voice_settings: { stability, similarity_boost, style, use_speaker_boost: true },
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`ElevenLabs TTS error (${res.status}): ${err}`);
+    }
+
+    return await res.arrayBuffer();
+  }
+
+  function isReady() {
+    return !!(_apiKey && _voiceId);
+  }
+
+  return { init, synthesize, isReady };
+})();
+
+// ════════════════════════════════════════
 // Claude API — Configuration & Service
 // ════════════════════════════════════════
 
@@ -19,6 +66,9 @@ const ClaudeAPI = (() => {
       const data = await res.json();
       if (data.ANTHROPIC_API_KEY) {
         config.apiKey = data.ANTHROPIC_API_KEY;
+      }
+      if (data.ElevenLabs_API_KEY && data.ElevenLabs_VOICE_ID) {
+        ElevenLabsTTS.init(data.ElevenLabs_API_KEY, data.ElevenLabs_VOICE_ID);
       }
       return data;
     } catch (e) {

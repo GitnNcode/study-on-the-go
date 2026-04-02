@@ -116,9 +116,60 @@ tailwind.config = {
     <div id="voiceList" class="result-box ok" style="max-height:200px;overflow-y:auto;font-size:11px;padding:8px;"></div>
   </div>
 
-  <!-- ── 2. STT ── -->
+  <!-- ── 2. ElevenLabs TTS ── -->
   <div class="card">
-    <div class="section-title">2 · Speech Recognition (STT)</div>
+    <div class="section-title">2 · ElevenLabs TTS — Keanan (Natural, Teacher)</div>
+
+    <div class="flex items-center gap-3 mb-3">
+      <div id="elStatus" class="badge badge-muted">checking…</div>
+      <div id="elVoiceName" class="text-xs text-muted font-mono">voice: —</div>
+    </div>
+
+    <div class="flex flex-wrap gap-3 mb-3">
+      <div>
+        <span class="label">Emotion preset</span>
+        <select id="elEmotion" class="w-full" onchange="applyEmotionPreset()">
+          <option value="neutral">Neutral</option>
+          <option value="excited">Excited</option>
+          <option value="encouraging">Encouraging</option>
+          <option value="sympathetic">Sympathetic</option>
+        </select>
+      </div>
+      <div>
+        <span class="label">Stability <span id="elStabilityVal" class="text-glow">0.50</span></span>
+        <input type="range" id="elStability" min="0" max="1" step="0.05" value="0.50" class="w-28 mt-2"
+          oninput="document.getElementById('elStabilityVal').textContent = parseFloat(this.value).toFixed(2)">
+      </div>
+      <div>
+        <span class="label">Similarity <span id="elSimilarityVal" class="text-glow">0.75</span></span>
+        <input type="range" id="elSimilarity" min="0" max="1" step="0.05" value="0.75" class="w-28 mt-2"
+          oninput="document.getElementById('elSimilarityVal').textContent = parseFloat(this.value).toFixed(2)">
+      </div>
+      <div>
+        <span class="label">Style <span id="elStyleVal" class="text-glow">0.00</span></span>
+        <input type="range" id="elStyle" min="0" max="1" step="0.05" value="0.00" class="w-28 mt-2"
+          oninput="document.getElementById('elStyleVal').textContent = parseFloat(this.value).toFixed(2)">
+      </div>
+    </div>
+
+    <textarea id="elText" rows="3" placeholder="Type something to speak…">Hello! This is a test of the ElevenLabs Keanan voice. How does it sound compared to the browser synthesizer?</textarea>
+
+    <div class="flex gap-2 mt-3">
+      <button class="btn-primary" id="elBtn" onclick="testElevenLabs()">▶ Speak</button>
+      <button class="btn-ghost" onclick="stopElevenLabs()">■ Stop</button>
+      <button class="btn-ghost" id="elEmotionsBtn" onclick="testElevenLabsEmotions()">▶ Cycle emotions</button>
+    </div>
+
+    <div id="elMeta" class="flex gap-2 mt-2"></div>
+
+    <hr class="divider">
+    <div class="section-title">Voices in ElevenLabs library</div>
+    <div id="elVoiceList" class="result-box" style="max-height:180px;overflow-y:auto;font-size:11px;padding:8px;">Press ▶ Speak to load.</div>
+  </div>
+
+  <!-- ── 3. STT ── -->
+  <div class="card">
+    <div class="section-title">3 · Speech Recognition (STT)</div>
 
     <div class="flex gap-2 mb-3">
       <button class="btn-primary" id="sttBtn" onclick="toggleSTT()">🎤 Start listening</button>
@@ -132,9 +183,9 @@ tailwind.config = {
     <div id="sttInterim" class="result-box" style="color:#6b7280;font-style:italic">—</div>
   </div>
 
-  <!-- ── 3. Claude API ── -->
+  <!-- ── 4. Claude API ── -->
   <div class="card">
-    <div class="section-title">3 · Claude API</div>
+    <div class="section-title">4 · Claude API</div>
 
     <div class="flex gap-3 mb-3">
       <div class="flex-1">
@@ -169,9 +220,9 @@ tailwind.config = {
     <div id="claudeMeta" class="flex gap-2 mt-2"></div>
   </div>
 
-  <!-- ── 4. PDF Parsing ── -->
+  <!-- ── 5. PDF Parsing ── -->
   <div class="card">
-    <div class="section-title">4 · PDF Parsing</div>
+    <div class="section-title">5 · PDF Parsing</div>
     <input type="file" id="pdfInput" accept="application/pdf" class="hidden" onchange="testPDF(this)">
     <div class="flex gap-2 mb-3">
       <button class="btn-ghost" onclick="document.getElementById('pdfInput').click()">📄 Load PDF</button>
@@ -182,9 +233,9 @@ tailwind.config = {
     <div id="pdfMeta" class="text-xs text-muted mt-2"></div>
   </div>
 
-  <!-- ── 5. Full Roundtrip ── -->
+  <!-- ── 6. Full Roundtrip ── -->
   <div class="card">
-    <div class="section-title">5 · Full roundtrip — STT → Claude → TTS</div>
+    <div class="section-title">6 · Full roundtrip — STT → Claude → TTS</div>
     <p class="text-muted text-sm mb-3">Speak a question, Claude answers, the answer is read aloud.</p>
     <div class="flex gap-2 mb-3">
       <button class="btn-primary" id="roundtripBtn" onclick="startRoundtrip()">🎤 Ask with voice</button>
@@ -222,6 +273,120 @@ async function init() {
   if (window.speechSynthesis) {
     window.speechSynthesis.onvoiceschanged = loadVoices;
   }
+  checkElevenLabsStatus();
+}
+
+// ── 2. ElevenLabs TTS ──
+let _elAudio = null;
+
+const EMOTION_PRESETS = {
+  neutral:     { stability: 0.50, similarity_boost: 0.75, style: 0.00 },
+  excited:     { stability: 0.35, similarity_boost: 0.80, style: 0.40 },
+  encouraging: { stability: 0.45, similarity_boost: 0.78, style: 0.20 },
+  sympathetic: { stability: 0.55, similarity_boost: 0.72, style: 0.10 },
+};
+
+function applyEmotionPreset() {
+  const emotion = document.getElementById('elEmotion').value;
+  const p = EMOTION_PRESETS[emotion];
+  document.getElementById('elStability').value = p.stability;
+  document.getElementById('elStabilityVal').textContent = p.stability.toFixed(2);
+  document.getElementById('elSimilarity').value = p.similarity_boost;
+  document.getElementById('elSimilarityVal').textContent = p.similarity_boost.toFixed(2);
+  document.getElementById('elStyle').value = p.style;
+  document.getElementById('elStyleVal').textContent = p.style.toFixed(2);
+}
+
+async function checkElevenLabsStatus() {
+  const statusEl = document.getElementById('elStatus');
+  const nameEl = document.getElementById('elVoiceName');
+  const listEl = document.getElementById('elVoiceList');
+  const cfg = await fetch('config.json').then(r => r.json());
+  if (!cfg.ElevenLabs_API_KEY || !cfg.ElevenLabs_VOICE_ID) {
+    statusEl.textContent = 'missing key or voice ID';
+    statusEl.className = 'badge badge-err';
+    listEl.textContent = 'Add ElevenLabs_API_KEY and ElevenLabs_VOICE_ID to config.json.';
+    return;
+  }
+  statusEl.textContent = 'ready';
+  statusEl.className = 'badge badge-ok';
+  nameEl.textContent = `voice ID: ${cfg.ElevenLabs_VOICE_ID}`;
+  listEl.innerHTML = `<div class="voice-row"><span>Voice ID</span><span style="color:#f59e0b">${cfg.ElevenLabs_VOICE_ID}</span></div>
+    <div style="color:#6b7280;font-size:11px;margin-top:6px">To use Keanan, find its voice ID at elevenlabs.io/app/voice-library and update ElevenLabs_VOICE_ID in config.json.</div>`;
+}
+
+async function testElevenLabs() {
+  if (!ElevenLabsTTS.isReady()) {
+    document.getElementById('elMeta').innerHTML = '<span class="badge badge-err">No ElevenLabs API key</span>';
+    return;
+  }
+  const btn = document.getElementById('elBtn');
+  const metaEl = document.getElementById('elMeta');
+  btn.disabled = true;
+  btn.textContent = '…';
+  metaEl.innerHTML = '<span class="badge badge-warn">synthesizing…</span>';
+
+  stopElevenLabs();
+
+  const text = document.getElementById('elText').value;
+  const settings = {
+    stability: parseFloat(document.getElementById('elStability').value),
+    similarity_boost: parseFloat(document.getElementById('elSimilarity').value),
+    style: parseFloat(document.getElementById('elStyle').value),
+  };
+
+  const t0 = Date.now();
+  try {
+    const audioData = await ElevenLabsTTS.synthesize(text, settings);
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+    const blob = new Blob([audioData], { type: 'audio/mpeg' });
+    const url = URL.createObjectURL(blob);
+    _elAudio = new Audio(url);
+    _elAudio.onended = () => {
+      URL.revokeObjectURL(url);
+      _elAudio = null;
+      metaEl.innerHTML = `<span class="badge badge-ok">${elapsed}s synthesis</span><span class="badge badge-muted">done</span>`;
+    };
+    _elAudio.play();
+    metaEl.innerHTML = `<span class="badge badge-ok">${elapsed}s synthesis</span><span class="badge badge-muted">playing…</span>`;
+  } catch (e) {
+    metaEl.innerHTML = `<span class="badge badge-err">${e.message}</span>`;
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ Speak';
+}
+
+function stopElevenLabs() {
+  if (_elAudio) {
+    _elAudio.pause();
+    _elAudio = null;
+  }
+}
+
+async function testElevenLabsEmotions() {
+  const btn = document.getElementById('elEmotionsBtn');
+  btn.disabled = true;
+  const emotions = ['neutral', 'excited', 'encouraging', 'sympathetic'];
+  const lines = [
+    'This is the neutral voice. Calm and clear.',
+    'Wow, that is absolutely amazing! Great job!',
+    'You are doing really well — keep it up!',
+    'That is okay, everyone makes mistakes sometimes.',
+  ];
+  for (let i = 0; i < emotions.length; i++) {
+    document.getElementById('elEmotion').value = emotions[i];
+    applyEmotionPreset();
+    document.getElementById('elText').value = lines[i];
+    await testElevenLabs();
+    // Wait for audio to finish (poll _elAudio)
+    await new Promise(resolve => {
+      const check = setInterval(() => {
+        if (!_elAudio) { clearInterval(check); resolve(); }
+      }, 200);
+    });
+    await new Promise(r => setTimeout(r, 400));
+  }
+  btn.disabled = false;
 }
 
 // ── 1. TTS ──
@@ -458,14 +623,23 @@ async function startRoundtrip() {
       );
       document.getElementById('roundtripOutput').textContent = reply;
       setRoundtripStatus('speaking…', 'badge-ok');
-      const voiceName = document.getElementById('ttsVoice').value;
-      const voices = window.speechSynthesis.getVoices();
-      const u = new SpeechSynthesisUtterance(reply);
-      u.rate = parseFloat(document.getElementById('ttsRate').value);
-      u.pitch = parseFloat(document.getElementById('ttsPitch').value);
-      u.voice = voices.find(v => v.name === voiceName) || null;
-      u.onend = () => setRoundtripStatus('done', 'badge-muted');
-      window.speechSynthesis.speak(u);
+      if (ElevenLabsTTS.isReady()) {
+        const audioData = await ElevenLabsTTS.synthesize(reply);
+        const blob = new Blob([audioData], { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        _elAudio = new Audio(url);
+        _elAudio.onended = () => { URL.revokeObjectURL(url); _elAudio = null; setRoundtripStatus('done', 'badge-muted'); };
+        _elAudio.play();
+      } else {
+        const voiceName = document.getElementById('ttsVoice').value;
+        const voices = window.speechSynthesis.getVoices();
+        const u = new SpeechSynthesisUtterance(reply);
+        u.rate = parseFloat(document.getElementById('ttsRate').value);
+        u.pitch = parseFloat(document.getElementById('ttsPitch').value);
+        u.voice = voices.find(v => v.name === voiceName) || null;
+        u.onend = () => setRoundtripStatus('done', 'badge-muted');
+        window.speechSynthesis.speak(u);
+      }
     } catch (err) {
       document.getElementById('roundtripOutput').textContent = `Error: ${err.message}`;
       setRoundtripStatus('error', 'badge-err');
@@ -484,6 +658,7 @@ async function startRoundtrip() {
 function stopRoundtrip() {
   if (roundtripRecog) roundtripRecog.stop();
   window.speechSynthesis.cancel();
+  stopElevenLabs();
   setRoundtripStatus('stopped', 'badge-muted');
 }
 
